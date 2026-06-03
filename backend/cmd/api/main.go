@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mumtozvalijonov/weather/internal/adapters/config"
-	"github.com/mumtozvalijonov/weather/internal/adapters/httpapi"
+	"github.com/mumtozvalijonov/weather/internal/adapter/config"
+	"github.com/mumtozvalijonov/weather/internal/adapter/httpapi"
+	"github.com/mumtozvalijonov/weather/internal/adapter/openmeteo"
+	"github.com/mumtozvalijonov/weather/internal/adapter/storage/redis"
+	"github.com/mumtozvalijonov/weather/internal/core/service"
 )
 
 func main() {
@@ -23,8 +26,22 @@ func main() {
 		log.Fatal(err)
 	}
 
+	openmeteoClient, err := openmeteo.NewClient(&http.Client{Timeout: 10 * time.Second}, "https://api.open-meteo.com/v1/forecast")
+	if err != nil {
+		log.Fatalf("failed to initialize openmeteo client: %v", err)
+	}
+
+	ctx := context.Background()
+	cache, err := redis.New(ctx)
+	if err != nil {
+		log.Fatalf("failed to connect to Redis: %v", err)
+	}
+	defer cache.Close()
+
+	weatherService := service.NewWeatherService(openmeteoClient, cache)
+	handler := httpapi.NewHandler(weatherService)
+
 	router := gin.Default()
-	handler := httpapi.NewHandler()
 	handler.RegisterRoutes(router)
 
 	server := &http.Server{
