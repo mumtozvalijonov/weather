@@ -4,6 +4,7 @@ go 1.26.3
 
 require (
 	github.com/gin-gonic/gin v1.12.0
+	github.com/google/go-cmp v0.7.0
 	github.com/joho/godotenv v1.5.1
 	github.com/mmcloughlin/geohash v0.10.0
 	github.com/redis/go-redis/v9 v9.20.0

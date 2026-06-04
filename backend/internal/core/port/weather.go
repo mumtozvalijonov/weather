@@ -2,14 +2,25 @@ package port
 
 import (
 	"context"
+	"time"
 
 	"github.com/mumtozvalijonov/weather/internal/core/domain"
 )
 
 type WeatherProvider interface {
-	GetForecast(ctx context.Context, req domain.ForecastRequest) (domain.Forecast, error)
+	GetForecast(ctx context.Context, req domain.ForecastRequest) (*domain.Forecast, error)
 }
 
 type WeatherService interface {
-	GetForecast(ctx context.Context, req domain.ForecastRequest) (domain.Forecast, error)
+	GetForecast(ctx context.Context, req domain.ForecastRequest) (*domain.Forecast, error)
+}
+
+type WeatherRepository interface {
+	Get(ctx context.Context, key string) (*domain.Forecast, error)
+	Set(ctx context.Context, key string, value *domain.Forecast, ttl time.Duration) error
+	Delete(ctx context.Context, key string) error
+	AddGeoData(ctx context.Context, geoKey, locationName string, longitude, latitude float64) error
+	DeleteGeoData(ctx context.Context, geoKey, locationName string) error
+	FindKeyWithinRadius(ctx context.Context, geoKey string, longitude, latitude, radius float64) (string, error)
+	Close() error
 }

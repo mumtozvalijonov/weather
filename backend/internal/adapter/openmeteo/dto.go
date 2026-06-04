@@ -14,8 +14,8 @@ type (
 	}
 )
 
-func (obj *ForecastDto) intoDomain() domain.Forecast {
-	return domain.Forecast{
+func (obj *ForecastDto) intoDomain() *domain.Forecast {
+	return &domain.Forecast{
 		Latitude:  obj.Latitude,
 		Longitude: obj.Longitude,
 		Hourly: domain.Hourly{

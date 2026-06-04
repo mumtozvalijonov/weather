@@ -24,7 +24,7 @@ func NewClient(client *http.Client, baseUrl string) (*Client, error) {
 	return &Client{apiClient: client, baseUrl: *parsedUrl}, nil
 }
 
-func (c *Client) GetForecast(ctx context.Context, forecastRequest domain.ForecastRequest) (domain.Forecast, error) {
+func (c *Client) GetForecast(ctx context.Context, forecastRequest domain.ForecastRequest) (*domain.Forecast, error) {
 	var dto ForecastDto
 
 	u := c.baseUrl
@@ -43,21 +43,21 @@ func (c *Client) GetForecast(ctx context.Context, forecastRequest domain.Forecas
 		nil,
 	)
 	if err != nil {
-		return domain.Forecast{}, err
+		return nil, err
 	}
 
 	resp, err := c.apiClient.Do(req)
 	if err != nil {
-		return domain.Forecast{}, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return domain.Forecast{}, fmt.Errorf("third-party API returned an error")
+		return nil, fmt.Errorf("third-party API returned an error")
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&dto); err != nil {
-		return domain.Forecast{}, err
+		return nil, err
 	}
 
 	return dto.intoDomain(), nil
