@@ -68,20 +68,39 @@ func (r *Redis) DeleteGeoData(ctx context.Context, geoKey, locationName string) 
 	return r.client.ZRem(ctx, geoKey, locationName).Err()
 }
 
-func (r *Redis) FindKeyWithinRadius(ctx context.Context, geoKey string, longitude, latitude, radius float64) (string, error) {
-	results, err := r.client.GeoSearch(ctx, geoKey, &redis.GeoSearchQuery{
-		Longitude:  longitude,
-		Latitude:   latitude,
-		Radius:     radius,
-		RadiusUnit: "m",
-		Count:      1,
-	}).Result()
+func (r *Redis) FindKeyWithinRadiusWithUpsert(ctx context.Context, geoKey, locationName string, longitude, latitude, radius float64) (string, error) {
+	script := redis.NewScript(`
+		local existing = redis.call(
+		  "GEOSEARCH",
+		  KEYS[1],
+		  "FROMLONLAT", ARGV[1], ARGV[2],
+		  "BYRADIUS", ARGV[4], "m",
+		  "COUNT", 1
+		)
+
+		if #existing > 0 then
+		  return {0, existing[1]}
+		end
+
+		redis.call("GEOADD", KEYS[1], ARGV[1], ARGV[2], ARGV[3])
+		return {1, ARGV[3]}
+		`,
+	)
+
+	res, err := script.Run(
+		ctx,
+		r.client,
+		[]string{geoKey},
+		longitude,
+		latitude,
+		locationName,
+		radius,
+	).Slice()
+
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 
-	if len(results) > 0 {
-		return results[0], nil
-	}
-	return "", nil
+	member := res[1].(string)
+	return member, nil
 }

@@ -82,22 +82,65 @@ func TestWeatherService_GetForecast_CacheMiss(t *testing.T) {
 				t.Fatalf("forecast mismatch (-want +got):\n%s", diff)
 			}
 
-			// check if persisted in repo
-			key, err := fakeWeatherRepo.FindKeyWithinRadius(ctx, "forecast", req.Longitude, req.Latitude, 5000)
-			if err != nil {
-				t.Fatal(err)
-			} else if key == "" {
-				t.Fatalf("no key persisted in cache")
-			}
-
-			cachedData, err := fakeWeatherRepo.Get(ctx, key)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if diff := cmp.Diff(tt.expectedForecast, *cachedData); diff != "" {
-				t.Fatalf("cached forecast mismatch (-want +got):\n%s", diff)
-			}
 		})
+	}
+}
+
+func TestWeatherService_GetForecast_CacheMiss_PersistsForecastForNearbyRequest(t *testing.T) {
+	ctx := context.Background()
+
+	firstReq := domain.ForecastRequest{
+		Latitude:  40.7128,
+		Longitude: -74.0060,
+	}
+	nearbyReq := domain.ForecastRequest{
+		Latitude:  40.7130,
+		Longitude: -74.0062,
+	}
+
+	providerForecast := domain.Forecast{
+		Latitude:  firstReq.Latitude,
+		Longitude: firstReq.Longitude,
+		Hourly: domain.Hourly{
+			Time:        []string{"2026-06-04T00:00"},
+			Temperature: []float64{21.5},
+		},
+	}
+	fallbackProviderForecast := domain.Forecast{
+		Latitude:  nearbyReq.Latitude,
+		Longitude: nearbyReq.Longitude,
+		Hourly: domain.Hourly{
+			Time:        []string{"provider-called-again"},
+			Temperature: []float64{99.9},
+		},
+	}
+
+	fakeWeatherRepo := newFakeWeatherRepository()
+
+	weatherService := service.NewWeatherService(
+		newStubWeatherProvider(providerForecast, nil),
+		fakeWeatherRepo,
+	)
+
+	firstResult, err := weatherService.GetForecast(ctx, firstReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(providerForecast, *firstResult); diff != "" {
+		t.Fatalf("first forecast mismatch (-want +got):\n%s", diff)
+	}
+
+	weatherService = service.NewWeatherService(
+		newStubWeatherProvider(fallbackProviderForecast, nil),
+		fakeWeatherRepo,
+	)
+
+	secondResult, err := weatherService.GetForecast(ctx, nearbyReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(providerForecast, *secondResult); diff != "" {
+		t.Fatalf("second forecast should come from cache (-want +got):\n%s", diff)
 	}
 }
 

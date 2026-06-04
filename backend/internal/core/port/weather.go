@@ -21,6 +21,6 @@ type WeatherRepository interface {
 	Delete(ctx context.Context, key string) error
 	AddGeoData(ctx context.Context, geoKey, locationName string, longitude, latitude float64) error
 	DeleteGeoData(ctx context.Context, geoKey, locationName string) error
-	FindKeyWithinRadius(ctx context.Context, geoKey string, longitude, latitude, radius float64) (string, error)
+	FindKeyWithinRadiusWithUpsert(ctx context.Context, geoKey, locationName string, longitude, latitude, radius float64) (string, error)
 	Close() error
 }

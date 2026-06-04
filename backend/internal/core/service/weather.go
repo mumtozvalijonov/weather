@@ -8,12 +8,13 @@ import (
 	"github.com/mmcloughlin/geohash"
 	"github.com/mumtozvalijonov/weather/internal/core/domain"
 	"github.com/mumtozvalijonov/weather/internal/core/port"
-	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 )
 
 type WeatherService struct {
-	provider    port.WeatherProvider
-	weatherRepo port.WeatherRepository
+	requestGroup singleflight.Group
+	provider     port.WeatherProvider
+	weatherRepo  port.WeatherRepository
 }
 
 func NewWeatherService(weatherProvider port.WeatherProvider, weatherRepository port.WeatherRepository) *WeatherService {
@@ -21,30 +22,6 @@ func NewWeatherService(weatherProvider port.WeatherProvider, weatherRepository p
 		provider:    weatherProvider,
 		weatherRepo: weatherRepository,
 	}
-}
-
-func (s *WeatherService) tryGetForecastFromRepo(ctx context.Context, req domain.ForecastRequest) (*domain.Forecast, bool) {
-	cacheKey, err := s.getCacheKey(ctx, req)
-	if err != nil {
-		return nil, false
-	}
-
-	if cacheKey == "" {
-		return nil, false
-	}
-
-	cachedData, err := s.weatherRepo.Get(ctx, cacheKey)
-	if err == nil {
-		return cachedData, true
-	}
-
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
-		_ = s.weatherRepo.DeleteGeoData(ctx, "forecast", cacheKey)
-	}()
-	return nil, false
 }
 
 func (s *WeatherService) fetchForecastFromProvider(ctx context.Context, req domain.ForecastRequest) (*domain.Forecast, error) {
@@ -55,41 +32,46 @@ func (s *WeatherService) fetchForecastFromProvider(ctx context.Context, req doma
 	return result, nil
 }
 
-func (s *WeatherService) tryPersistForecastInRepo(ctx context.Context, forecast *domain.Forecast) bool {
-	cacheKey := makeCacheKey(domain.ForecastRequest{
-		Latitude:  forecast.Latitude,
-		Longitude: forecast.Longitude,
-	})
-	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		return s.weatherRepo.Set(ctx, cacheKey, forecast, time.Hour)
-	})
-	g.Go(func() error {
-		return s.weatherRepo.AddGeoData(ctx, "forecast", cacheKey, forecast.Longitude, forecast.Latitude)
-	})
-	err := g.Wait()
-	return err == nil
-}
-
 func (s *WeatherService) GetForecast(ctx context.Context, req domain.ForecastRequest) (*domain.Forecast, error) {
-	forecast, ok := s.tryGetForecastFromRepo(ctx, req)
-	if ok {
-		return forecast, nil
+	areaKey, err := s.makeAreaKey(ctx, req)
+	if err != nil {
+		return nil, ErrForecastUnavailable
 	}
 
-	// TODO: singleflight here
+	result, err, _ := s.requestGroup.Do(areaKey, func() (any, error) {
+		cachedData, err := s.weatherRepo.Get(ctx, areaKey)
+		if err == nil {
+			return cachedData, nil
+		}
 
-	result, err := s.fetchForecastFromProvider(ctx, req)
+		// If we end up here, means data not found in cache.
+		// NOTE 1: Because we don't retire members of GeoSet
+		// we might be requesting forecast for a location within 5km
+		// from the position the areaKey belongs to
+		providerResult, err := s.fetchForecastFromProvider(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+
+		// Note 2: Because of `Note 1` -> we will now store data
+		// related to a potentially different location, but not much distant
+		_ = s.weatherRepo.Set(ctx, areaKey, providerResult, time.Hour)
+		return providerResult, nil
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrForecastUnavailable, err)
 	}
 
-	s.tryPersistForecastInRepo(ctx, result)
-	return result, nil
+	if forecast, ok := result.(*domain.Forecast); ok {
+		return forecast, nil
+	}
+	return nil, ErrForecastUnavailable
 }
 
-func (s *WeatherService) getCacheKey(ctx context.Context, req domain.ForecastRequest) (string, error) {
-	return s.weatherRepo.FindKeyWithinRadius(ctx, "forecast", req.Longitude, req.Latitude, 5000)
+func (s *WeatherService) makeAreaKey(ctx context.Context, req domain.ForecastRequest) (string, error) {
+	locationName := makeCacheKey(req)
+	return s.weatherRepo.FindKeyWithinRadiusWithUpsert(ctx, "forecast", locationName, req.Longitude, req.Latitude, 5000)
 }
 
 func makeCacheKey(req domain.ForecastRequest) string {

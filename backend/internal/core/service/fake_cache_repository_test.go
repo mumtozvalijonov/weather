@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/mumtozvalijonov/weather/internal/core/domain"
@@ -9,6 +10,7 @@ import (
 )
 
 type fakeWeatherRepository struct {
+	mu   sync.Mutex
 	data map[string]*domain.Forecast
 	geo  map[string]map[string]fakeGeoLocation
 }
@@ -26,6 +28,9 @@ func newFakeWeatherRepository() *fakeWeatherRepository {
 }
 
 func (f *fakeWeatherRepository) Get(ctx context.Context, key string) (*domain.Forecast, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	value, ok := f.data[key]
 	if !ok {
 		return nil, service.ErrForecastUnavailable
@@ -34,16 +39,30 @@ func (f *fakeWeatherRepository) Get(ctx context.Context, key string) (*domain.Fo
 }
 
 func (f *fakeWeatherRepository) Set(ctx context.Context, key string, value *domain.Forecast, ttl time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.data[key] = value
 	return nil
 }
 
 func (f *fakeWeatherRepository) Delete(ctx context.Context, key string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	delete(f.data, key)
 	return nil
 }
 
 func (f *fakeWeatherRepository) AddGeoData(ctx context.Context, geoKey, locationName string, longitude, latitude float64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.addGeoData(geoKey, locationName, longitude, latitude)
+	return nil
+}
+
+func (f *fakeWeatherRepository) addGeoData(geoKey, locationName string, longitude, latitude float64) {
 	if f.geo[geoKey] == nil {
 		f.geo[geoKey] = map[string]fakeGeoLocation{}
 	}
@@ -52,26 +71,44 @@ func (f *fakeWeatherRepository) AddGeoData(ctx context.Context, geoKey, location
 		longitude: longitude,
 		latitude:  latitude,
 	}
-	return nil
 }
 
 func (f *fakeWeatherRepository) DeleteGeoData(ctx context.Context, geoKey, locationName string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	delete(f.geo[geoKey], locationName)
 	return nil
 }
 
-func (f *fakeWeatherRepository) FindKeyWithinRadius(ctx context.Context, geoKey string, longitude, latitude, radius float64) (string, error) {
+func (f *fakeWeatherRepository) findKeyWithinRadius(geoKey string, longitude, latitude, radius float64) string {
 	for locationName, location := range f.geo[geoKey] {
 		distance := distanceMeters(latitude, longitude, location.latitude, location.longitude)
 		if distance <= radius {
-			return locationName, nil
+			return locationName
 		}
 	}
 
-	return "", nil
+	return ""
+}
+
+func (f *fakeWeatherRepository) FindKeyWithinRadiusWithUpsert(ctx context.Context, geoKey, locationName string, longitude, latitude, radius float64) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	existingLocationName := f.findKeyWithinRadius(geoKey, longitude, latitude, radius)
+	if existingLocationName != "" {
+		return existingLocationName, nil
+	}
+
+	f.addGeoData(geoKey, locationName, longitude, latitude)
+	return locationName, nil
 }
 
 func (f *fakeWeatherRepository) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	clear(f.data)
 	clear(f.geo)
 	return nil
