@@ -33,7 +33,7 @@ func (s *WeatherService) tryGetForecastFromRepo(ctx context.Context, req domain.
 		return nil, false
 	}
 
-	cachedData, err := s.weatherRepo.Get(ctx, cacheKey);
+	cachedData, err := s.weatherRepo.Get(ctx, cacheKey)
 	if err == nil {
 		return cachedData, true
 	}
@@ -47,30 +47,44 @@ func (s *WeatherService) tryGetForecastFromRepo(ctx context.Context, req domain.
 	return nil, false
 }
 
+func (s *WeatherService) fetchForecastFromProvider(ctx context.Context, req domain.ForecastRequest) (*domain.Forecast, error) {
+	result, err := s.provider.GetForecast(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *WeatherService) tryPersistForecastInRepo(ctx context.Context, forecast *domain.Forecast) bool {
+	cacheKey := makeCacheKey(domain.ForecastRequest{
+		Latitude:  forecast.Latitude,
+		Longitude: forecast.Longitude,
+	})
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		return s.weatherRepo.Set(ctx, cacheKey, forecast, time.Hour)
+	})
+	g.Go(func() error {
+		return s.weatherRepo.AddGeoData(ctx, "forecast", cacheKey, forecast.Longitude, forecast.Latitude)
+	})
+	err := g.Wait()
+	return err == nil
+}
+
 func (s *WeatherService) GetForecast(ctx context.Context, req domain.ForecastRequest) (*domain.Forecast, error) {
-	if forecast, ok  := s.tryGetForecastFromRepo(ctx, req); ok  {
+	forecast, ok := s.tryGetForecastFromRepo(ctx, req)
+	if ok {
 		return forecast, nil
 	}
 
-	cacheKey := makeCacheKey(req)
 	// TODO: singleflight here
 
-	result, err := s.provider.GetForecast(ctx, req)
+	result, err := s.fetchForecastFromProvider(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrForecastUnavailable, err)
 	}
 
-	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		return s.weatherRepo.Set(ctx, cacheKey, result, time.Hour)
-	})
-	g.Go(func() error {
-		return s.weatherRepo.AddGeoData(ctx, "forecast", cacheKey, req.Longitude, req.Latitude)
-	})
-	if err := g.Wait(); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrForecastUnavailable, err)
-	}
-
+	s.tryPersistForecastInRepo(ctx, result)
 	return result, nil
 }
 

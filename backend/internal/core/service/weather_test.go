@@ -153,7 +153,3 @@ func TestWeatherService_GetForecast_CacheHitWithinRadius(t *testing.T) {
 		t.Fatalf("forecast mismatch (-want +got):\n%s", diff)
 	}
 }
-
-// tryGetForecastFromRepo cache lookup error is ignored
-// empty cache key behavior changes
-// cache write error from errgroup is ignored
