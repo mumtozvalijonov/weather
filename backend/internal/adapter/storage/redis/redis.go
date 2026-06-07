@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mumtozvalijonov/weather/internal/core/domain"
+	"github.com/mumtozvalijonov/weather/internal/core/port"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -103,4 +104,29 @@ func (r *Redis) FindKeyWithinRadiusWithUpsert(ctx context.Context, geoKey, locat
 
 	member := res[1].(string)
 	return member, nil
+}
+
+func (r *Redis) TryLock(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	return r.client.SetNX(ctx, "lock:"+key, 1, ttl).Result()
+}
+
+func (r *Redis) Unlock(ctx context.Context, key string) error {
+	return r.Delete(ctx, "lock:"+key)
+}
+
+func (r *Redis) Subscribe(ctx context.Context, channelName string) (port.CancelFunc, port.NextMessageFunc) {
+	s := r.client.Subscribe(ctx, "channel:" + channelName)
+	ch := s.Channel()
+	return s.Close, func() (string, bool) {
+		msg, ok := <-ch
+		if !ok || msg == nil {
+			return "", false
+		}
+		return msg.Payload, ok
+	}
+}
+
+
+func (r *Redis) Publish(ctx context.Context, channelName string, message any) error {
+	return r.client.Publish(ctx, "channel:" + channelName, message).Err()
 }

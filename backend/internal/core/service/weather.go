@@ -39,24 +39,19 @@ func (s *WeatherService) GetForecast(ctx context.Context, req domain.ForecastReq
 	}
 
 	result, err, _ := s.requestGroup.Do(areaKey, func() (any, error) {
-		cachedData, err := s.weatherRepo.Get(ctx, areaKey)
-		if err == nil {
-			return cachedData, nil
-		}
-
-		// If we end up here, means data not found in cache.
-		// NOTE 1: Because we don't retire members of GeoSet
-		// we might be requesting forecast for a location within 5km
-		// from the position the areaKey belongs to
-		providerResult, err := s.fetchForecastFromProvider(ctx, req)
+		acquired, err := s.weatherRepo.TryLock(ctx, areaKey, 0)
 		if err != nil {
 			return nil, err
 		}
 
-		// Note 2: Because of `Note 1` -> we will now store data
-		// related to a potentially different location, but not much distant
-		_ = s.weatherRepo.Set(ctx, areaKey, providerResult, time.Hour)
-		return providerResult, nil
+		if cachedData, err := s.weatherRepo.Get(ctx, areaKey); err == nil {
+			return cachedData, nil
+		}
+
+		if acquired {
+			return s.getForecastAsLeader(ctx, areaKey, req)
+		}
+		return s.getForecastAsFollower(ctx, areaKey)
 	})
 
 	if err != nil {
@@ -65,6 +60,53 @@ func (s *WeatherService) GetForecast(ctx context.Context, req domain.ForecastReq
 
 	if forecast, ok := result.(*domain.Forecast); ok {
 		return forecast, nil
+	}
+	return nil, ErrForecastUnavailable
+}
+
+func (s *WeatherService) getForecastAsLeader(ctx context.Context, areaKey string, req domain.ForecastRequest) (*domain.Forecast, error) {
+	defer s.weatherRepo.Unlock(ctx, areaKey)
+	defer s.weatherRepo.Publish(ctx, areaKey, true)
+
+	// NOTE 1: Because we don't retire members of GeoSet
+	// we might be requesting forecast for a location within 5km
+	// from the position the areaKey belongs to
+	providerResult, err := s.fetchForecastFromProvider(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Note 2: Because of `Note 1` -> we will now store data
+	// related to a potentially different location, but not much distant
+	_ = s.weatherRepo.Set(ctx, areaKey, providerResult, time.Hour)
+	return providerResult, nil
+}
+
+func (s *WeatherService) getForecastAsFollower(ctx context.Context, areaKey string) (*domain.Forecast, error) {
+	cancel, next := s.weatherRepo.Subscribe(ctx, areaKey)
+	defer cancel()
+
+	done := make(chan bool, 1)
+	go func() {
+		_, ok := next()
+		select {
+		case done <- ok:
+		case <-ctx.Done():
+		}
+	}()
+
+	select {
+	case ok := <-done:
+		if !ok {
+			return nil, ErrForecastUnavailable
+		}
+	case <-ctx.Done():
+		return nil, ErrForecastUnavailable
+	}
+
+	cachedData, err := s.weatherRepo.Get(ctx, areaKey)
+	if err == nil {
+		return cachedData, nil
 	}
 	return nil, ErrForecastUnavailable
 }

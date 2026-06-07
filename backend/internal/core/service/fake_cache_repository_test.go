@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mumtozvalijonov/weather/internal/core/domain"
+	"github.com/mumtozvalijonov/weather/internal/core/port"
 	"github.com/mumtozvalijonov/weather/internal/core/service"
 )
 
@@ -112,4 +113,17 @@ func (f *fakeWeatherRepository) Close() error {
 	clear(f.data)
 	clear(f.geo)
 	return nil
+}
+
+func (f *fakeWeatherRepository) TryLock(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	panic("")
+}
+func (f *fakeWeatherRepository) Unlock(ctx context.Context, key string) error {
+	panic("")
+}
+func (f *fakeWeatherRepository) Subscribe(ctx context.Context, channelName string) (port.CancelFunc, port.NextMessageFunc) {
+	panic("")
+}
+func (f *fakeWeatherRepository) Publish(ctx context.Context, channelName string, message any) error {
+	panic("")
 }
