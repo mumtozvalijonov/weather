@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/mumtozvalijonov/weather/internal/core/domain"
@@ -62,7 +61,10 @@ func TestWeatherService_GetForecast_CacheMiss(t *testing.T) {
 			stubWeatherProvider := newStubWeatherProvider(tt.stubForecast, tt.stubError)
 			fakeWeatherRepo := newFakeWeatherRepository()
 
-			service := service.NewWeatherService(stubWeatherProvider, fakeWeatherRepo)
+			service := service.NewWeatherService(
+				stubWeatherProvider,
+				fakeWeatherRepo,
+			)
 
 			req := domain.ForecastRequest{Latitude: 40.7128, Longitude: -74.0060}
 			result, err := service.GetForecast(ctx, req)
@@ -144,55 +146,60 @@ func TestWeatherService_GetForecast_CacheMiss_PersistsForecastForNearbyRequest(t
 	}
 }
 
-func TestWeatherService_GetForecast_CacheHitWithinRadius(t *testing.T) {
-	cachedLocation := domain.ForecastRequest{
+func TestWeatherService_GetForecast_ReturnsFreshForecastForRequestOutsideCachedArea(t *testing.T) {
+	ctx := context.Background()
+
+	originalReq := domain.ForecastRequest{
 		Latitude:  40.7128,
 		Longitude: -74.0060,
 	}
-	req := domain.ForecastRequest{
-		Latitude:  40.7130,
-		Longitude: -74.0062,
+	outsideReq := domain.ForecastRequest{
+		Latitude:  40.7260,
+		Longitude: -74.0260,
 	}
 
-	cached := domain.Forecast{
-		Latitude:  cachedLocation.Latitude,
-		Longitude: cachedLocation.Longitude,
+	originalForecast := domain.Forecast{
+		Latitude:  originalReq.Latitude,
+		Longitude: originalReq.Longitude,
 		Hourly: domain.Hourly{
 			Time:        []string{"2026-06-04T00:00"},
-			Temperature: []float64{18.2},
+			Temperature: []float64{21.5},
 		},
 	}
-
-	providerForecast := domain.Forecast{
-		Latitude:  0,
-		Longitude: 0,
+	freshForecast := domain.Forecast{
+		Latitude:  outsideReq.Latitude,
+		Longitude: outsideReq.Longitude,
 		Hourly: domain.Hourly{
-			Time:        []string{"provider"},
-			Temperature: []float64{99.9},
+			Time:        []string{"2026-06-04T01:00"},
+			Temperature: []float64{19.8},
 		},
 	}
 
 	fakeWeatherRepo := newFakeWeatherRepository()
 
-	cacheKey := "cached-forecast"
-	if err := fakeWeatherRepo.Set(context.Background(), cacheKey, &cached, time.Hour); err != nil {
-		t.Fatal(err)
-	}
+	weatherService := service.NewWeatherService(
+		newStubWeatherProvider(originalForecast, nil),
+		fakeWeatherRepo,
+	)
 
-	if err := fakeWeatherRepo.AddGeoData(context.Background(), "forecast", cacheKey, cachedLocation.Longitude, cachedLocation.Latitude); err != nil {
-		t.Fatal(err)
-	}
-
-	provider := newStubWeatherProvider(providerForecast, nil)
-
-	weatherService := service.NewWeatherService(provider, fakeWeatherRepo)
-
-	result, err := weatherService.GetForecast(context.Background(), req)
+	firstResult, err := weatherService.GetForecast(ctx, originalReq)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if diff := cmp.Diff(originalForecast, *firstResult); diff != "" {
+		t.Fatalf("original forecast mismatch (-want +got):\n%s", diff)
+	}
 
-	if diff := cmp.Diff(cached, *result); diff != "" {
-		t.Fatalf("forecast mismatch (-want +got):\n%s", diff)
+	weatherService = service.NewWeatherService(
+		newStubWeatherProvider(freshForecast, nil),
+		fakeWeatherRepo,
+	)
+
+	secondResult, err := weatherService.GetForecast(ctx, outsideReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(freshForecast, *secondResult); diff != "" {
+		t.Fatalf("forecast outside cached area mismatch (-want +got):\n%s", diff)
 	}
 }

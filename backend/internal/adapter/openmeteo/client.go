@@ -16,8 +16,12 @@ type Client struct {
 	baseUrl   url.URL
 }
 
-func NewClient(client *http.Client, baseUrl string) (*Client, error) {
-	parsedUrl, err := url.Parse(baseUrl)
+type Config struct {
+	BaseURL string
+}
+
+func NewClient(client *http.Client, cfg Config) (*Client, error) {
+	parsedUrl, err := url.Parse(cfg.BaseURL)
 	if err != nil {
 		return nil, err
 	}

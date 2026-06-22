@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mumtozvalijonov/weather/internal/adapter/config"
 	"github.com/mumtozvalijonov/weather/internal/adapter/httpapi"
 	"github.com/mumtozvalijonov/weather/internal/adapter/openmeteo"
 	"github.com/mumtozvalijonov/weather/internal/adapter/storage/redis"
+	"github.com/mumtozvalijonov/weather/internal/config"
+	"github.com/mumtozvalijonov/weather/internal/core/port"
 	"github.com/mumtozvalijonov/weather/internal/core/service"
 )
 
@@ -26,19 +27,24 @@ func main() {
 		log.Fatal(err)
 	}
 
-	openmeteoClient, err := openmeteo.NewClient(&http.Client{Timeout: 10 * time.Second}, "https://api.open-meteo.com/v1/forecast")
+	openmeteoClient, err := openmeteo.NewClient(&http.Client{Timeout: 10 * time.Second}, cfg.OpenMeteo)
 	if err != nil {
 		log.Fatalf("failed to initialize openmeteo client: %v", err)
 	}
 
 	ctx := context.Background()
-	cache, err := redis.New(ctx)
+	_redis, err := redis.New(ctx, cfg.Redis)
 	if err != nil {
 		log.Fatalf("failed to connect to Redis: %v", err)
 	}
-	defer cache.Close()
+	defer _redis.Close()
 
-	weatherService := service.NewWeatherService(openmeteoClient, cache)
+	var redisRepo port.WeatherRepository = _redis
+
+	weatherService := service.NewWeatherService(
+		openmeteoClient,
+		redisRepo,
+	)
 	handler := httpapi.NewHandler(weatherService)
 
 	router := gin.Default()
