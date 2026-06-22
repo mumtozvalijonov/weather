@@ -20,8 +20,8 @@ func NewHandler(svc port.WeatherService) *Handler {
 	return &Handler{svc: svc}
 }
 
-func (h *Handler) RegisterRoutes(router *gin.Engine) {
-	router.GET("/weather", h.fetchWeatherData)
+func (h *Handler) RegisterRoutes(router gin.IRoutes) {
+	router.GET("", h.fetchWeatherData)
 }
 
 type fetchWeatherDataRequest struct {

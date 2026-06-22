@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mumtozvalijonov/weather/internal/adapter/httpapi"
+	"github.com/mumtozvalijonov/weather/internal/adapter/httpapi/middleware"
 	"github.com/mumtozvalijonov/weather/internal/adapter/openmeteo"
 	"github.com/mumtozvalijonov/weather/internal/adapter/storage/redis"
 	"github.com/mumtozvalijonov/weather/internal/config"
@@ -48,7 +49,11 @@ func main() {
 	handler := httpapi.NewHandler(weatherService)
 
 	router := gin.Default()
-	handler.RegisterRoutes(router)
+
+	weatherRoutes := router.Group("/weather")
+	weatherRoutes.Use(middleware.RateLimiterMiddleware())
+
+	handler.RegisterRoutes(weatherRoutes)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Addr,
