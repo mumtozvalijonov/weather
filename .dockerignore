@@ -1,8 +1,0 @@
-.git
-.gitignore
-Dockerfile
-docker-compose.yml
-README.md
-backend/.env
-backend/tmp
-backend/bin

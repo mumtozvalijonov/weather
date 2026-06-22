@@ -49,6 +49,7 @@ func main() {
 	handler := httpapi.NewHandler(weatherService)
 
 	router := gin.Default()
+	router.Use(middleware.CORSMiddleware(cfg.HTTP.CORSAllowedOrigins))
 
 	weatherRoutes := router.Group("/weather")
 	weatherRoutes.Use(middleware.RateLimiterMiddleware())

@@ -4,12 +4,13 @@ Go weather API backed by Redis cache and Open-Meteo.
 
 ## Run
 
-Start the API and Redis with Docker Compose:
+Start the web app, API, and Redis with Docker Compose:
 
 ```sh
 make up
 ```
 
+The web app listens on `http://localhost:3000`.
 The API listens on `http://localhost:8000`.
 
 Test the endpoint:
@@ -48,4 +49,10 @@ Run backend tests inside Docker:
 
 ```sh
 make test-backend
+```
+
+Run frontend lint inside Docker:
+
+```sh
+make test-web
 ```

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/mumtozvalijonov/weather/internal/adapter/openmeteo"
@@ -16,7 +17,8 @@ type (
 		OpenMeteo openmeteo.Config
 	}
 	HTTP struct {
-		Addr string
+		Addr               string
+		CORSAllowedOrigins []string
 	}
 )
 
@@ -24,6 +26,11 @@ func Load() (Config, error) {
 	_ = godotenv.Load(".env")
 
 	httpAddr, err := requiredEnv("HTTP_ADDR")
+	if err != nil {
+		return Config{}, err
+	}
+
+	corsAllowedOrigins, err := requiredEnv("CORS_ALLOWED_ORIGINS")
 	if err != nil {
 		return Config{}, err
 	}
@@ -40,7 +47,8 @@ func Load() (Config, error) {
 
 	return Config{
 		HTTP: HTTP{
-			Addr: httpAddr,
+			Addr:               httpAddr,
+			CORSAllowedOrigins: splitCSV(corsAllowedOrigins),
 		},
 		Redis: redis.Config{
 			Addr:     redisAddr,
@@ -50,6 +58,18 @@ func Load() (Config, error) {
 			BaseURL: openMeteoBaseURL,
 		},
 	}, nil
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
 }
 
 func requiredEnv(key string) (string, error) {
