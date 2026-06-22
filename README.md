@@ -2,6 +2,8 @@
 
 Go weather API backed by Redis cache and Open-Meteo.
 
+Idea source: [Weather API Wrapper Service](https://roadmap.sh/projects/weather-api-wrapper-service).
+
 ## Run
 
 Start the web app, API, and Redis with Docker Compose:
